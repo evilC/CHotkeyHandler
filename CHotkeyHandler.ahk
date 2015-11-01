@@ -60,6 +60,7 @@ Class MyClass {
 ;    If the key is already bound in another CHotkeyControl instance, CHotkeyHandler presents a dialog saying that the hotkey conflicts with another...
 ;    ... then returns a value to the CHotkeyControl instance to instruct it to not accept that binding.
 Class CHotkeyHandler {
+	_BindMode := 0
 	; Hotkey lookup arrays. Each hotkey has a NAME and a BINDSTRING (eg "^+a")
 	_HotkeyObjects := {}		; All the instantiated Hotkey objects. name -> object
 	_HotkeyCallbacks := {}		; The (user) callbacks for all the hotkeys. name -> callback
@@ -68,7 +69,10 @@ Class CHotkeyHandler {
 	_HeldHotkeys := {}			; A list of Hotkeys currently in the Down state (Used for repeat supression), name -> nothing
 	
 	; Public Methods ------------------------------------------------------------------------
-	__New(){
+	__New(callback := 0){
+		if (callback != 0 && !IsObject(callback))
+			callback := Func(callback)
+		this._callback := callback
 		this._InputDetector := new this.CInputDetector(this)
 	}
 	
@@ -83,9 +87,16 @@ Class CHotkeyHandler {
 
 	; Private Methods -------------------------------------------------------------------------
 	
-	RequestBindMode(name){
-		this.DisableHotkeys()
-		return 1
+	; Request to enter Bind Mode
+	RequestBindMode(name, callback){
+		if (this._BindMode){
+			return 0
+		} else {
+			this._BindMode := 1
+			this.DisableHotkeys()
+			this._InputDetector.SelectBinding(callback)
+			return 1
+		}
 	}
 	
 	; After we enter Bind Mode and a binding is chosen, this gets called to decide whether or not to accept the binding
@@ -109,11 +120,15 @@ Class CHotkeyHandler {
 		if (hk = ""){
 			this.DisableHotkey(name)
 		}
-		this.EditBinding(name, hk)
-		this.EnableHotkeys()
-		
 		OutputDebug % name " Hotkey Changed to " hk
 		return 1
+	}
+	
+	; A hotkey finished detecting a user binding
+	BindModeEnded(name, hk){
+		this.EditBinding(name, hk)
+		this.EnableHotkeys()
+		this._BindMode := 0
 	}
 	
 	; Updates the record for a given binding
@@ -272,8 +287,14 @@ Class CHotkeyHandler {
 		ChangeHotkey(hk){
 			value := this.BuildValue(hk)
 			; Request Binding from hotkey handler
-			if (!this._handler.RequestBinding(this._name, value))
+			if (!this._handler.RequestBinding(this._name, value)){
+				; Binding rejected - end bind mode, pass original value
+				this._handler.BindModeEnded(this._name, this._value)
 				return
+			}
+			; End Bind Mode and pass new value
+			this._handler.BindModeEnded(this._name, value)
+			
 			this._hotkey := hk
 			this._value := value
 			this.HumanReadable := this.BuildHumanReadable()
@@ -291,9 +312,7 @@ Class CHotkeyHandler {
 				o++
 				; Option selected from list
 				if (o = 1){
-					if (this._handler.RequestBindMode(this._name)){
-						this._handler._InputDetector.SelectBinding(this.ChangeHotkey.Bind(this))
-					}
+					this._handler.RequestBindMode(this._name, this.ChangeHotkey.Bind(this))
 					return
 				} else if (o = 2){
 					this._wild := !this._wild
