@@ -530,7 +530,7 @@ Class CHotkeyHandler {
 
 			
 			; Are the conditions met for end of Bind Mode? (Up event of non-modifier key)
-			if (is_modifier ? (!i.event && ModifierCount = 1) : !i.event && (i.type ? !ModifierCount : 1) ) {
+			if ((is_modifier ? (!i.event && ModifierCount = 1) : !i.event) && (i.type ? !ModifierCount : 1) ) {
 				; End Bind Mode
 				this.SetHotkeyState(0, this.RenderHotkey({HeldModifiers: HeldModifiers, EndKey: EndKey}))
 				return
@@ -545,16 +545,17 @@ Class CHotkeyHandler {
 						HeldModifiers.Delete(i.vk)
 						ModifierCount--
 					}
-				} else if (i.event) {
-					; key went down
-					if (i.type){
-						if (ModifierCount){
-							; Reject joystick button + modifier - AHK does not support this
+				} else {
+					; regular key went down or up
+					if (i.type && ModifierCount){
+						; Reject joystick button + modifier - AHK does not support this
+						if (i.event)
 							SoundBeep
-							return
-						}
+						return
 					}
-					EndKey := i
+					; Up event of non-modifier key - set end key
+					if (!i.event)
+						EndKey := i
 				}
 			}
 			
