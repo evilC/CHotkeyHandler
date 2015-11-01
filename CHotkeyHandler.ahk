@@ -2,9 +2,11 @@ OutputDebug DBGVIEWCLEAR
 #SingleInstance force
 
 
-hh := new CHotkeyHandler()
-hk1 := hh.AddHotkey("hk1", "HK1Pressed", "w200")
-hk2 := hh.AddHotkey("hk2", "HK2Pressed", "w200")
+hh := new CHotkeyHandler("HotkeyChanged")
+hotkeys := {}
+hotkeys.hk1 := hh.AddHotkey("hk1", "HK1Pressed", "w200")
+hotkeys.hk2 := hh.AddHotkey("hk2", "HK2Pressed", "w200")
+LoadHotkeys()
 Gui, Show, x0 y0
 return
 
@@ -13,16 +15,33 @@ GuiClose:
 	return
 	
 HK1Pressed(event){
-	global hk1
-	ToolTip % "Hoktey 1 (" hk1.HumanReadable ") " (event ? "Pressed" : "Released")
+	global hotkeys
+	ToolTip % "Hoktey 1 (" hotkeys.hk1.HumanReadable ") " (event ? "Pressed" : "Released")
 	SetTimer, TT, -500
 }
 
 HK2Pressed(event){
-	global hk2
+	global hotkeys
 	;ToolTip % "Hoktey 2 " (event ? "Pressed" : "Released")
-	ToolTip % "Hoktey 2 (" hk2.HumanReadable ") " (event ? "Pressed" : "Released")
+	ToolTip % "Hoktey 2 (" hotkeys.hk2.HumanReadable ") " (event ? "Pressed" : "Released")
 	SetTimer, TT, -500
+}
+
+; A Hotkey changed binding - save value to ini file
+HotkeyChanged(name, hk){
+	global hotkeys
+	IniWrite, % hk, % A_ScriptName ".ini", Hotkeys, % name
+	ToolTip % "Hotkey " name " Changed binding to: " hotkeys[name].HumanReadable
+}
+
+; Load hotkey bindings from INI file
+LoadHotkeys(){
+	global hotkeys
+	for name, hk in hotkeys {
+		IniRead, value, % A_ScriptName ".ini", Hotkeys, % name
+		if (value != "" && value != "ERROR")
+			hotkeys[name].value := value
+	}
 }
 
 TT:
@@ -129,6 +148,9 @@ Class CHotkeyHandler {
 		this.EditBinding(name, hk)
 		this.EnableHotkeys()
 		this._BindMode := 0
+		if (this._callback !=0){
+			this._callback.call(name, hk)
+		}
 	}
 	
 	; Updates the record for a given binding
@@ -239,7 +261,6 @@ Class CHotkeyHandler {
 			this.SetCueBanner()
 		}
 		
-		/*
 		; Setters and getters re-route .value to ._value
 		; Set of value triggers update of GUI, but does not request setting of hotkey
 		value[]{
@@ -253,7 +274,7 @@ Class CHotkeyHandler {
 		}
 		
 		; Set the entire state of the hotkey - Modifier, Keys *and* Modes.
-		; This code is currently only to support programatically setting a hotkey by .value (eg for a profile system to tell a hotkey to switch setting)
+		; This code is currently only to support programatically setting a hotkey by .value (eg when loading binding state from an INI file)
 		SetValue(value){
 			max := StrLen(value)
 			str := ""
@@ -272,13 +293,12 @@ Class CHotkeyHandler {
 					break
 				}
 			}
-			this.SetHotkey(hk, 0)
-			this._hotkey .= SubStr(value, i, max)
-			this._value := str this._hotkey
-			this.SetCueBanner()
-			this.BuildOptions()
+			hk := SubStr(value, i, max)
+			value := str this._hotkey
+			if (this._handler.RequestBinding(this._name, value))
+				this._UpdateValue(hk, value)
+			; else ??
 		}
-		*/
 		
 		; The Binding (That is, only the Modifiers and EndKeys) Changed
 		; Modes (eg ~, *) are not set by this routine
@@ -292,9 +312,14 @@ Class CHotkeyHandler {
 				this._handler.BindModeEnded(this._name, this._value)
 				return
 			}
+			this._UpdateValue(hk, value)
+			
 			; End Bind Mode and pass new value
 			this._handler.BindModeEnded(this._name, value)
-			
+		}
+		
+		; Updates the state of the hotkey
+		_UpdateValue(hk, value){
 			this._hotkey := hk
 			this._value := value
 			this.HumanReadable := this.BuildHumanReadable()
