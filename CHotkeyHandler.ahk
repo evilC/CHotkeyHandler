@@ -66,7 +66,7 @@ Class CHotkeyHandler {
 	_HotkeyCallbacks := {}		; The (user) callbacks for all the hotkeys. name -> callback
 	_HotkeyBindings := {}		; The parameters used for the hotkey command. name -> bindstring
 	_BoundKeys := {}			; Currently bound hotkeys. Used to detect attempt to bind same hotkey twice. NOTE: ~ is filtered out, as it does not affect uniqueness. bindstring -> name
-	_HeldHotkeys := {}			; A list of Hotkeys currently in the Down state (Used for repeat supression), name -> nothing
+	_HeldHotkeys := {}			; A list of Hotkeys currently in the Down state (Used for repeat suppression), name -> nothing
 	
 	; Public Methods ------------------------------------------------------------------------
 	__New(callback := 0){
@@ -220,19 +220,20 @@ Class CHotkeyHandler {
 	}
 	
 	; CHotkeyControl handles the GUI for an individual Hotkey GuiControl.
-	; It facilitates selection of hotkey options (wild, passthrough, repeat supression etc) and displaying of the selected hotkey in a human-readable format.
+	; It facilitates selection of hotkey options (wild, passthrough, repeat suppression etc) and displaying of the selected hotkey in a human-readable format.
 	Class CHotkeyControl {
 		; Internal vars describing the bindstring
 		_value := ""		; The bindstring of the hotkey (eg ~*^!a). The getter for .value returns this
 		_hotkey := ""		; The bindstring without any modes (eg ^!a)
 		_wild := 0			; Whether Wild (*) mode is on
 		_passthrough := 1	; Whether Passthrough (~) mode is on
-		_norepeat := 0		; Whether or not to supress repeat down events
+		_norepeat := 0		; Whether or not to suppress repeat down events
 		_type := 0			; 0 = keyboard / mouse, 1 = joystick button
 		; Other internal vars
 		_DefaultBanner := "Drop down list to select a binding"
 		_modifiers := {"^": "Ctrl", "+": "Shift", "!": "Alt", "#": "Win"}
 		_modes := {"~": 1, "*": 1}
+		_OptionMap := {Select: 1, Wild: 2, Passthrough: 3, Suppress: 4, Clear: 5}
 		; Constructor.
 		; Params:
 		; handler: The Hotkey Handler class. Will call various methods of this class to eg request a binding, set a hotkey
@@ -334,17 +335,19 @@ Class CHotkeyHandler {
 			GuiControl, Choose, % this.hwnd, 0
 			if (o < 100){
 				o++
+				; Some options may be filtered, so look up actual option ID from _CurrentOptionMap
+				o := this._CurrentOptionMap[o]
 				; Option selected from list
 				if (o = 1){
 					this._handler.RequestBindMode(this._name, this.ChangeHotkey.Bind(this))
 					return
-				} else if (o = 2){
+				} else if (o = this._OptionMap["Wild"]){
 					this._wild := !this._wild
-				} else if (o = 3){
+				} else if (o = this._OptionMap["Passthrough"]){
 					this._passthrough := !this._passthrough
-				} else if (o = 4){
+				} else if (o = this._OptionMap["Suppress"]){
 					this._norepeat := !this._norepeat
-				} else if (o = 5){
+				} else if (o = this._OptionMap["Clear"]){
 					this._hotkey := ""
 				} else {
 					; not one of the options from the list, user must have typed in box
@@ -355,8 +358,21 @@ Class CHotkeyHandler {
 		}
 
 		; Builds the list of options in the DropDownList
+		; Some items may be filtered, so a _CurrentOptionMap lookup table is created
 		BuildOptions(){
-			str := "|Select Binding|Wild: " (this._wild ? "On" : "Off") "|Passthrough: " (this._passthrough ? "On" : "Off") "|Repeat Supression: " (this._norepeat ? "On" : "Off") "|Clear Binding"
+			this._CurrentOptionMap := [this._OptionMap["Select"]]
+			str := "|Select Binding"
+			if (this._type = 0){
+				; Joystick buttons do not have these options
+				str .= "|Wild: " (this._wild ? "On" : "Off") 
+				this._CurrentOptionMap.push(this._OptionMap["Wild"])
+				str .= "|Passthrough: " (this._passthrough ? "On" : "Off")
+				this._CurrentOptionMap.push(this._OptionMap["Passthrough"])
+				str .= "|Repeat Suppression: " (this._norepeat ? "On" : "Off")
+				this._CurrentOptionMap.push(this._OptionMap["Suppress"])
+			}
+			str .= "|Clear Binding"
+			this._CurrentOptionMap.push(this._OptionMap["Clear"])
 			GuiControl, , % this.hwnd, % str
 		}
 		
