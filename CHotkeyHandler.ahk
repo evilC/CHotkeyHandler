@@ -464,6 +464,8 @@ Class CHotkeyHandler {
 				SplashTextOn, 300, 30, Bind  Mode, Press a key combination to bind
 				; Set flag to tell ProcessInput we want to initialize Bind Mode
 				this._StartBindMode := 1
+			} else {
+				SplashTextOff
 			}
 			; Cycle through all keys / mouse buttons
 			Loop 256 {
@@ -497,7 +499,6 @@ Class CHotkeyHandler {
 				}
 			}
 			if (!state){
-				SplashTextOff
 				; Fire callback
 				this._callback.(binding)
 			}
@@ -551,11 +552,10 @@ Class CHotkeyHandler {
 						; Reject joystick button + modifier - AHK does not support this
 						if (i.event)
 							SoundBeep
-						return
-					}
-					; Up event of non-modifier key - set end key
-					if (!i.event)
+					} else {
+						; Down event of non-modifier key - set end key
 						EndKey := i
+					}
 				}
 			}
 			
