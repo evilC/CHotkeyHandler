@@ -38,6 +38,7 @@ HotkeyChanged(name, hk){
 	global hotkeys
 	IniWrite, % hk, % A_ScriptName ".ini", Hotkeys, % name
 	ToolTip % "Hotkey " name " Changed binding to: " hotkeys[name].HumanReadable
+	SetTimer, TT, -500
 }
 
 ; Load hotkey values from INI file
