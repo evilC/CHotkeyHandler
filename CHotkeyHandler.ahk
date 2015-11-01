@@ -22,7 +22,6 @@ HK1Pressed(event){
 
 HK2Pressed(event){
 	global hotkeys
-	;ToolTip % "Hoktey 2 " (event ? "Pressed" : "Released")
 	ToolTip % "Hoktey 2 (" hotkeys.hk2.HumanReadable ") " (event ? "Pressed" : "Released")
 	SetTimer, TT, -500
 }
@@ -120,41 +119,41 @@ Class CHotkeyHandler {
 	
 	; After we enter Bind Mode and a binding is chosen, this gets called to decide whether or not to accept the binding
 	RequestBinding(name, hk){
-		; Is this instance already bound?
-		;if (ObjHasKey(this._HotkeyBindings, name)){
-		;	this.UpdateBinding(name, "")
-		;}
 		StringReplace, hktmp, hk, ~
 		if (ObjHasKey(this._BoundKeys, hktmp) && this._BoundKeys[hktmp] != name){
 			; Duplicate hotkey
 			SplashTextOn, 300, 50, Bind  Mode, % "This key combination is already bound to the following hotkey: " this._BoundKeys[hktmp]
 			Sleep 2000
 			SplashTextOff
-			; Re-enable the hotkeys
-			this.EnableHotkeys()
 			; Pass false - binding not allowed
 			return 0
-		}
-		
-		if (hk = ""){
-			this.DisableHotkey(name)
 		}
 		OutputDebug % name " Hotkey Changed to " hk
 		return 1
 	}
 	
-	; A hotkey finished detecting a user binding
-	BindModeEnded(name, hk){
-		this.EditBinding(name, hk)
-		this.EnableHotkeys()
-		this._BindMode := 0
+	; A hotkey finished detecting a user binding (Bind Mode ended), or one of the options (eg Clear, change mode) was used
+	_HotkeyChanged(name, hk){
+		if (hk = ""){
+			this.DisableHotkey(name)
+		}
+		this._RegisterBinding(name, hk)
+		
+		if (this._BindMode){
+			; If in Bind Mode, A valid key was chosen, so end Bind Mode.
+			this._BindMode := 0
+			this.EnableHotkeys()
+		} else {
+			; Not in Bind Mode - option was chosen, or value was set by external source (eg load from INI file)
+			this.EnableHotkey(name, hk)
+		}
 		if (this._callback !=0){
 			this._callback.call(name, hk)
 		}
 	}
 	
-	; Updates the record for a given binding
-	EditBinding(name, hk){
+	; Registers a binding with the hotkey handler
+	_RegisterBinding(name, hk){
 		if (hk = ""){
 			; Update arrays
 			this._BoundKeys.Delete(this._HotkeyBindings[name])
@@ -180,7 +179,7 @@ Class CHotkeyHandler {
 				hotkey, % "$" hk, % fn, On
 				fn := this._HotkeyEvent.Bind(this, name, 0)
 				hotkey, % "$" hk " up", % fn, On
-				this.EditBinding(name, hk)
+				this._RegisterBinding(name, hk)
 			} catch {
 				OutputDebug % "Enable Hotkey for " name " failed! " - hk
 			}
@@ -294,9 +293,11 @@ Class CHotkeyHandler {
 				}
 			}
 			hk := SubStr(value, i, max)
-			value := str this._hotkey
-			if (this._handler.RequestBinding(this._name, value))
+			value := str hk
+			if (this._handler.RequestBinding(this._name, value)){
 				this._UpdateValue(hk, value)
+				this._handler.EnableHotkey(this._name, value)
+			}
 			; else ??
 		}
 		
@@ -309,13 +310,13 @@ Class CHotkeyHandler {
 			; Request Binding from hotkey handler
 			if (!this._handler.RequestBinding(this._name, value)){
 				; Binding rejected - end bind mode, pass original value
-				this._handler.BindModeEnded(this._name, this._value)
+				this._handler._HotkeyChanged(this._name, this._value)
 				return
 			}
 			this._UpdateValue(hk, value)
 			
 			; End Bind Mode and pass new value
-			this._handler.BindModeEnded(this._name, value)
+			this._handler._HotkeyChanged(this._name, value)
 		}
 		
 		; Updates the state of the hotkey
