@@ -14,7 +14,7 @@ Class CHotkeyHandler {
 	_HotkeyCallbacks := {}		; The (user) callbacks for all the hotkeys. name -> callback
 	_HotkeyBindings := {}		; The parameters used for the hotkey command. name -> bindstring
 	_BoundKeys := {}			; Currently bound hotkeys. Used to detect attempt to bind same hotkey twice. NOTE: ~ is filtered out, as it does not affect uniqueness. bindstring -> name
-	_HeldHotkeys := {}			; A list of Hotkeys currently in the Down state (Used for repeat supression), name -> nothing
+	_HeldHotkeys := {}			; A list of Hotkeys currently in the Down state (Used for repeat suppression), name -> nothing
 	
 	; Public Methods ------------------------------------------------------------------------
 	__New(callback := 0){
@@ -107,8 +107,10 @@ Class CHotkeyHandler {
 			try {
 				fn := this._HotkeyEvent.Bind(this, name, 1)
 				hotkey, % "$" hk, % fn, On
-				fn := this._HotkeyEvent.Bind(this, name, 0)
-				hotkey, % "$" hk " up", % fn, On
+				if (this._HotkeyObjects[name]._type = 0){
+					fn := this._HotkeyEvent.Bind(this, name, 0)
+					hotkey, % "$" hk " up", % fn, On
+				}
 				this._RegisterBinding(name, hk)
 			} catch {
 				OutputDebug % "Enable Hotkey for " name " failed! " - hk
@@ -155,21 +157,31 @@ Class CHotkeyHandler {
 		}
 		OutputDebug % "Hotkey " name " - " event
 		this._HotkeyCallbacks[name].(event)
+		; Simulate up events for joystick buttons
+		if (event = 1 && this._HotkeyObjects[name]._type = 1){
+			StringReplace, str, % this._HotkeyBindings[name], ~
+			while(GetKeyState(str)){
+				Sleep 10
+			}
+			this._HotkeyEvent(name, 0)
+		}
 	}
 	
 	; CHotkeyControl handles the GUI for an individual Hotkey GuiControl.
-	; It facilitates selection of hotkey options (wild, passthrough, repeat supression etc) and displaying of the selected hotkey in a human-readable format.
+	; It facilitates selection of hotkey options (wild, passthrough, repeat suppression etc) and displaying of the selected hotkey in a human-readable format.
 	Class CHotkeyControl {
 		; Internal vars describing the bindstring
 		_value := ""		; The bindstring of the hotkey (eg ~*^!a). The getter for .value returns this
 		_hotkey := ""		; The bindstring without any modes (eg ^!a)
 		_wild := 0			; Whether Wild (*) mode is on
 		_passthrough := 1	; Whether Passthrough (~) mode is on
-		_norepeat := 0		; Whether or not to supress repeat down events
+		_norepeat := 0		; Whether or not to suppress repeat down events
+		_type := 0			; 0 = keyboard / mouse, 1 = joystick button
 		; Other internal vars
 		_DefaultBanner := "Drop down list to select a binding"
 		_modifiers := {"^": "Ctrl", "+": "Shift", "!": "Alt", "#": "Win"}
 		_modes := {"~": 1, "*": 1}
+		_OptionMap := {Select: 1, Wild: 2, Passthrough: 3, Suppress: 4, Clear: 5}
 		; Constructor.
 		; Params:
 		; handler: The Hotkey Handler class. Will call various methods of this class to eg request a binding, set a hotkey
@@ -253,6 +265,11 @@ Class CHotkeyHandler {
 		_UpdateValue(hk, value){
 			this._hotkey := hk
 			this._value := value
+			if (InStr(hk, "Joy")){
+				this._type := 1
+			} else {
+				this._type := 0
+			}
 			this.HumanReadable := this.BuildHumanReadable()
 			this.SetCueBanner()
 			this.BuildOptions()
@@ -266,17 +283,19 @@ Class CHotkeyHandler {
 			GuiControl, Choose, % this.hwnd, 0
 			if (o < 100){
 				o++
+				; Some options may be filtered, so look up actual option ID from _CurrentOptionMap
+				o := this._CurrentOptionMap[o]
 				; Option selected from list
 				if (o = 1){
 					this._handler.RequestBindMode(this._name, this.ChangeHotkey.Bind(this))
 					return
-				} else if (o = 2){
+				} else if (o = this._OptionMap["Wild"]){
 					this._wild := !this._wild
-				} else if (o = 3){
+				} else if (o = this._OptionMap["Passthrough"]){
 					this._passthrough := !this._passthrough
-				} else if (o = 4){
+				} else if (o = this._OptionMap["Suppress"]){
 					this._norepeat := !this._norepeat
-				} else if (o = 5){
+				} else if (o = this._OptionMap["Clear"]){
 					this._hotkey := ""
 				} else {
 					; not one of the options from the list, user must have typed in box
@@ -287,8 +306,21 @@ Class CHotkeyHandler {
 		}
 
 		; Builds the list of options in the DropDownList
+		; Some items may be filtered, so a _CurrentOptionMap lookup table is created
 		BuildOptions(){
-			str := "|Select Binding|Wild: " (this._wild ? "On" : "Off") "|Passthrough: " (this._passthrough ? "On" : "Off") "|Repeat Supression: " (this._norepeat ? "On" : "Off") "|Clear Binding"
+			this._CurrentOptionMap := [this._OptionMap["Select"]]
+			str := "|Select Binding"
+			if (this._type = 0){
+				; Joystick buttons do not have these options
+				str .= "|Wild: " (this._wild ? "On" : "Off") 
+				this._CurrentOptionMap.push(this._OptionMap["Wild"])
+				str .= "|Passthrough: " (this._passthrough ? "On" : "Off")
+				this._CurrentOptionMap.push(this._OptionMap["Passthrough"])
+				str .= "|Repeat Suppression: " (this._norepeat ? "On" : "Off")
+				this._CurrentOptionMap.push(this._OptionMap["Suppress"])
+			}
+			str .= "|Clear Binding"
+			this._CurrentOptionMap.push(this._OptionMap["Clear"])
 			GuiControl, , % this.hwnd, % str
 		}
 		
@@ -380,8 +412,10 @@ Class CHotkeyHandler {
 				SplashTextOn, 300, 30, Bind  Mode, Press a key combination to bind
 				; Set flag to tell ProcessInput we want to initialize Bind Mode
 				this._StartBindMode := 1
+			} else {
+				SplashTextOff
 			}
-			; Cycle through all keys
+			; Cycle through all keys / mouse buttons
 			Loop 256 {
 				; Get the key name
 				i := A_Index
@@ -393,14 +427,26 @@ Class CHotkeyHandler {
 				Loop 2 {
 					blk := this.DebugMode = 2 || (this.DebugMode = 1 && i <= 2) ? "~" : ""
 
-					fn := this.ProcessInput.Bind(this, {keyname: n, event: updown[A_Index].e, vk: i})
+					fn := this.ProcessInput.Bind(this, {type: 0, keyname: n, event: updown[A_Index].e, vk: i})
 					if (state)
 						hotkey, % pfx blk n updown[A_Index].s, % fn
 					hotkey, % pfx blk n updown[A_Index].s, % fn, % onoff
 				}
 			}
+			; Cycle through all Joystick Buttons
+			Loop 8 {
+				j := A_Index
+				Loop 32 {
+					n := j "Joy" A_Index
+					Loop 2 {
+						fn := this.ProcessInput.Bind(this, {type: 1, keyname: n, event: updown[A_Index].e, vk: i})
+						if (state)
+								hotkey, % pfx n updown[A_Index].s, % fn
+							hotkey, % pfx n updown[A_Index].s, % fn, % onoff
+						}
+				}
+			}
 			if (!state){
-				SplashTextOff
 				; Fire callback
 				this._callback.(binding)
 			}
@@ -422,14 +468,18 @@ Class CHotkeyHandler {
 				this._StartBindMode := 0
 			}
 			
-			is_modifier := ObjHasKey(this._Modifiers, i.vk)
+			if (i.type){
+				is_modifier := 0
+			} else {
+				is_modifier := ObjHasKey(this._Modifiers, i.vk)
+				; filter repeats
+				if (i.event && (is_modifier ? ObjHasKey(HeldModifiers, i.vk) : EndKey) )
+					return
+			}
 
-			; filter repeats
-			if (i.event && (is_modifier ? ObjHasKey(HeldModifiers, i.vk) : EndKey) )
-				return
 			
 			; Are the conditions met for end of Bind Mode? (Up event of non-modifier key)
-			if (is_modifier ? (!i.event && ModifierCount = 1) : !i.event) {
+			if ((is_modifier ? (!i.event && ModifierCount = 1) : !i.event) && (i.type ? !ModifierCount : 1) ) {
 				; End Bind Mode
 				this.SetHotkeyState(0, this.RenderHotkey({HeldModifiers: HeldModifiers, EndKey: EndKey}))
 				return
@@ -445,8 +495,15 @@ Class CHotkeyHandler {
 						ModifierCount--
 					}
 				} else {
-					; key went down
-					EndKey := i
+					; regular key went down or up
+					if (i.type && ModifierCount){
+						; Reject joystick button + modifier - AHK does not support this
+						if (i.event)
+							SoundBeep
+					} else {
+						; Down event of non-modifier key - set end key
+						EndKey := i
+					}
 				}
 			}
 			

@@ -45,6 +45,8 @@ Class MyClass {
 	HotkeyChanged(name, hk){
 		IniWrite, % hk, % A_ScriptName ".ini", Hotkeys, % name
 		ToolTip % "Hotkey " name " Changed binding to: " this.hotkeys[name].HumanReadable
+		fn := this.TT.Bind(this)
+		SetTimer, % fn, -500
 	}
 	
 	TT(){
